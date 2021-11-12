@@ -1,5 +1,20 @@
-from datetime import datetime
 import os
+
+from constants import OPTIONS
+from datetime import datetime
+
+
+#------------------------------------------------------------------------------#
+# exclude: an easy way to do, but slow
+def exclude_obs(obs):
+    for i in range(len(obs)):
+        exclude_index = []
+        for j in range(obs[i]['sats_num']):
+            if obs[i]['obs'][j]['sys'] not in OPTIONS['enable_sys']:
+                exclude_index.append(j)
+        for j in range(len(exclude_index)-1, -1, -1):
+            del obs[i]['obs'][exclude_index[j]]
+        obs[i]['sats_num'] -= len(exclude_index)
 
 
 #------------------------------------
@@ -49,19 +64,20 @@ def str2sat_status(line):
     line = '{:<80}'.format(line)
     sat_status = {}
     sat_status['sat_id'] = line[1:4]
-    sat_status['x'] = float(line[4:18])
-    sat_status['y'] = float(line[18:32])
-    sat_status['z'] = float(line[32:46])
-    sat_status['clk'] = float(line[46:60])
-    sat_status['x_sdev'] = str2int(line[61:63])
-    sat_status['y_sdev'] = str2int(line[64:66])
-    sat_status['z_sdev'] = str2int(line[67:69])
-    sat_status['clk_sdev'] = str2int(line[70:73])
-    sat_status['clk_event_flag'] = line[74:75]
-    sat_status['clk_pred_flag'] = line[75:76]
-    sat_status['maneuver_flag'] = line[78:79]
-    sat_status['orbit_pred_flag'] = line[79:80]
-
+    sys = line[1]
+    if sys in OPTIONS['enable_sys']:
+        sat_status['x'] = float(line[4:18])
+        sat_status['y'] = float(line[18:32])
+        sat_status['z'] = float(line[32:46])
+        sat_status['clk'] = float(line[46:60])
+        sat_status['x_sdev'] = str2int(line[61:63])
+        sat_status['y_sdev'] = str2int(line[64:66])
+        sat_status['z_sdev'] = str2int(line[67:69])
+        sat_status['clk_sdev'] = str2int(line[70:73])
+        sat_status['clk_event_flag'] = line[74:75]
+        sat_status['clk_pred_flag'] = line[75:76]
+        sat_status['maneuver_flag'] = line[78:79]
+        sat_status['orbit_pred_flag'] = line[79:80]
     return sat_status
 
 
@@ -177,13 +193,14 @@ def read_sp3_body(filename, record_type, sats_num):
                     for _ in range(sats_num):
                         sat = {}
                         sat_status = str2sat_status(line)
-                        line = file.readline()
-                        sat_status = {**sat_status, **str2sat_pos_sdev(line)}
-                        line = file.readline()
-                        sat_status = {**sat_status, **str2sat_vel(line)}
-                        line = file.readline()
-                        sat_status = {**sat_status, **str2sat_vel_sdev(line)}
-                        sat.append(sat_status)
+                        if sat_status['sat_id'][0] in OPTIONS['enable_sys']:
+                            line = file.readline()
+                            sat_status = {**sat_status, **str2sat_pos_sdev(line)}
+                            line = file.readline()
+                            sat_status = {**sat_status, **str2sat_vel(line)}
+                            line = file.readline()
+                            sat_status = {**sat_status, **str2sat_vel_sdev(line)}
+                            sat.append(sat_status)
                 ephemerics['sat'] = sat
                 body.append(ephemerics)
 
@@ -746,57 +763,61 @@ def read_rnx_body_v303_nav(filename):
                 break
         if end_header:
             while (line := file.readline()):
-                nav = {}
-                nav['prn'] = int(line[0:2])
-                nav['time'] = str2time(line[3:22])
-                nav['clk_bias'] = str2float(line[22:22+19])
-                nav['clk_drift'] = str2float(line[22+19:22+19*2])
-                nav['clk_drift_rate'] = str2float(line[22+19*2:22+19*3])
+                if line[0] in OPTIONS['enable_sys']:
+                    nav = {}
+                    nav['sat_id'] = (line[0:3])
+                    nav['time'] = str2time(line[4:23])
+                    nav['clk_bias'] = str2float(line[23:23+19])
+                    nav['clk_drift'] = str2float(line[23+19:23+19*2])
+                    nav['clk_drift_rate'] = str2float(line[23+19*2:23+19*3])
 
-                line = file.readline()
-                nav['iode'] = str2float(line[3:3+19])
-                nav['Crs'] = str2float(line[22:22+19])
-                nav['deltaN'] = str2float(line[22+19:22+19*2])
-                nav['M0'] = str2float(line[22+19*2:22+19*3])
+                    line = file.readline()
+                    nav['iode'] = str2float(line[4:23])
+                    nav['Crs'] = str2float(line[23:23+19])
+                    nav['deltaN'] = str2float(line[23+19:23+19*2])
+                    nav['M0'] = str2float(line[23+19*2:23+19*3])
 
-                line = file.readline()
-                nav['Cuc'] = str2float(line[3:3+19])
-                nav['e'] = str2float(line[22:22+19])
-                nav['Cus'] = str2float(line[22+19:22+19*2])
-                nav['sqrtA'] = str2float(line[22+19*2:22+19*3])
-                
-                line = file.readline()
-                nav['Toe'] = str2float(line[3:3+19])
-                nav['Cic'] = str2float(line[22:22+19])
-                nav['OMEGA'] = str2float(line[22+19:22+19*2])
-                nav['Cis'] = str2float(line[22+19*2:22+19*3])
-                
-                line = file.readline()
-                nav['i0'] = str2float(line[3:3+19])
-                nav['Crc'] = str2float(line[22:22+19])
-                nav['omega'] = str2float(line[22+19:22+19*2])
-                nav['omega_dot'] = str2float(line[22+19*2:22+19*3])
-                
-                line = file.readline()
-                nav['idot'] = str2float(line[3:3+19])
-                nav['codes_L2'] = str2float(line[22:22+19])
-                nav['week'] = str2float(line[22+19:22+19*2])
-                nav['L2_P_flag'] = str2float(line[22+19*2:22+19*3])
-                
-                line = file.readline()
-                nav['sv_accuracy'] = str2float(line[3:3+19])
-                nav['sv_health'] = str2float(line[22:22+19])
-                nav['TGD'] = str2float(line[22+19:22+19*2])
-                nav['iodc'] = str2float(line[22+19*2:22+19*3])
-                
-                line = file.readline()
-                nav['transmission_time'] = str2float(line[3:3+19])
-                if len(line) > 23:
-                    nav['interval'] = str2float(line[22:22+19])
+                    line = file.readline()
+                    nav['Cuc'] = str2float(line[4:23])
+                    nav['e'] = str2float(line[23:23+19])
+                    nav['Cus'] = str2float(line[23+19:23+19*2])
+                    nav['sqrtA'] = str2float(line[23+19*2:23+19*3])
+                    
+                    line = file.readline()
+                    nav['Toe'] = str2float(line[4:23])
+                    nav['Cic'] = str2float(line[23:23+19])
+                    nav['OMEGA'] = str2float(line[23+19:23+19*2])
+                    nav['Cis'] = str2float(line[23+19*2:23+19*3])
+                    
+                    line = file.readline()
+                    nav['i0'] = str2float(line[4:23])
+                    nav['Crc'] = str2float(line[23:23+19])
+                    nav['omega'] = str2float(line[23+19:23+19*2])
+                    nav['omega_dot'] = str2float(line[23+19*2:23+19*3])
+                    
+                    line = file.readline()
+                    nav['idot'] = str2float(line[4:23])
+                    nav['codes_L2'] = str2float(line[23:23+19])
+                    nav['week'] = str2float(line[23+19:23+19*2])
+                    nav['L2_P_flag'] = str2float(line[23+19*2:23+19*3])
+                    
+                    line = file.readline()
+                    nav['sv_accuracy'] = str2float(line[4:23])
+                    nav['sv_health'] = str2float(line[23:23+19])
+                    nav['TGD'] = str2float(line[23+19:23+19*2])
+                    nav['iodc'] = str2float(line[23+19*2:23+19*3])
+                    
+                    line = file.readline()
+                    nav['transmission_time'] = str2float(line[4:23])
+                    if len(line) > 23:
+                        nav['interval'] = str2float(line[23:23+19])
+                    else:
+                        nav['interval'] = 0
+
+                    body.append(nav)
                 else:
-                    nav['interval'] = 0
-
-                body.append(nav)
+                    for _ in range(7):
+                        line = file.readline()
     file.close()
     return body
 
@@ -833,7 +854,8 @@ def read_rnx(filename):
 # # obs1 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_gps.05o"))
 # # # obs2 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_mix.11o"))
 # # nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_gps.05n"))
-# obs3 = read_rnx_v303_obs(os.path.join(dirname, "data/303_obs_mix.00o"))
-
-# nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_glo.20g"))
+# # obs3 = read_rnx_v303_obs(os.path.join(dirname, "data/303_obs_mix.00o"))
+# # exclude_obs(obs3['body'])
+# # nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_glo.20g"))
+# nav3 = read_rnx_v303_nav(os.path.join(dirname, "data/304_nav_mix.rnx"))
 # c = 1
