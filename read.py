@@ -360,6 +360,9 @@ def read_rnx_v210_obs(filename):
 
 
 def read_rnx_header_v210_nav(filename):
+    """
+    work with mixed GNSS navigation message data
+    """
     header = {}
     with open(filename, 'r') as file:
         for line in file:
@@ -381,6 +384,10 @@ def read_rnx_header_v210_nav(filename):
                 header['ion_beta'] = [str2float(line[2:14]), \
                     str2float(line[14:26]), str2float(line[26:38]), \
                     str2float(line[38:50])]
+            elif 'CORR TO SYSTEM TIME' in line: # optional, glonass
+                header['reference_time'] = datetime( \
+                    int(line[0:6]), int(line[6:12]), int(line[12:18]))
+                header['correction_scale'] = str2float(line[21:21+19])
             elif 'DELTA-UTC: A0,A1,T,W' in line: # optional
                 header['delta_utc'] = [str2float(line[3:22]), \
                     str2float(line[22:22+19]), int(line[22+19:22+28]), \
@@ -458,9 +465,52 @@ def read_rnx_body_v210_nav(filename):
     return body
 
 
+def read_rnx_body_v210_nav_glo(filename):
+    body = []
+    end_header = False
+    with open(filename, 'r') as file:
+        while (line := file.readline()):
+            if 'END OF HEADER' in line:
+                end_header = True
+                break
+        if end_header:
+            while (line := file.readline()):
+                nav = {}
+                nav['prn'] = int(line[0:2])
+                nav['time'] = str2time(line[3:22])
+                nav['clk_bias'] = str2float(line[22:22+19])
+                nav['relative_frequency_bias'] = str2float(line[22+19:22+19*2])
+                nav['message_frame_time'] = str2float(line[22+19*2:22+19*3])
+
+                line = file.readline()
+                nav['pos_x'] = str2float(line[3:3+19])
+                nav['vel_x'] = str2float(line[22:22+19])
+                nav['acc_x'] = str2float(line[22+19:22+19*2])
+                nav['health'] = str2float(line[22+19*2:22+19*3])
+
+                line = file.readline()
+                nav['pos_y'] = str2float(line[3:3+19])
+                nav['vel_y'] = str2float(line[22:22+19])
+                nav['acc_y'] = str2float(line[22+19:22+19*2])
+                nav['frequency_num'] = str2float(line[22+19*2:22+19*3])
+                
+                line = file.readline()
+                nav['pos_z'] = str2float(line[3:3+19])
+                nav['vel_z'] = str2float(line[22:22+19])
+                nav['acc_z'] = str2float(line[22+19:22+19*2])
+                nav['age_oper'] = str2float(line[22+19*2:22+19*3])
+
+                body.append(nav)
+    file.close()
+    return body
+
+
 def read_rnx_v210_nav(filename):
     header = read_rnx_header_v210_nav(filename)
-    body = {'body': read_rnx_body_v210_nav(filename)}
+    if header['file_type'][0] == 'G':
+        body = {'body': read_rnx_body_v210_nav_glo(filename)}
+    else:
+        body = {'body': read_rnx_body_v210_nav(filename)}
 
     return {**header, **body}
 
@@ -774,16 +824,16 @@ def read_rnx(filename):
     return rnx
 
 
+# dirname = os.path.dirname(__file__)
+# # # # test read sp3 file
+# # # nav1 = read_sp3(os.path.join(dirname, "data/G.sp3"))
+# # # nav2 = read_sp3(os.path.join(dirname, "data/CERG.sp3"))
 
-dirname = os.path.dirname(__file__)
-# # test read sp3 file
-# nav1 = read_sp3(os.path.join(dirname, "data/G.sp3"))
-# nav2 = read_sp3(os.path.join(dirname, "data/CERG.sp3"))
-
-# # test read rinex obs file
-# obs1 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_gps.05o"))
-# obs2 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_mix.11o"))
-# nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_gps.05n"))
+# # # # test read rinex obs file
+# # obs1 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_gps.05o"))
+# # # obs2 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_mix.11o"))
+# # nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_gps.05n"))
 # obs3 = read_rnx_v303_obs(os.path.join(dirname, "data/303_obs_mix.00o"))
 
-c = 1
+# nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_glo.20g"))
+# c = 1
