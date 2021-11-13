@@ -1,3 +1,7 @@
+"""
+only work with single frequency
+"""
+import itertools
 import os
 
 from constants import OPTIONS
@@ -17,11 +21,20 @@ def find_code(obs, sys, type, band):
     for code in (OPTIONS[priority]):
         channel = type + band + code
         if channel in channels and obs[channel][0] > 1:
-            res.append(obs[channel])
+            res = obs[channel]
             break
     if not res:
-        res.append([0, 999999, 999999])
+        res = [0, 999999, 999999]
     return res
+
+
+def remove_duplicate(obs):
+    for _, val_epoch in enumerate(obs): # loop every epoch
+        for _, val_obs in enumerate(val_epoch['obs']): # loop every observed sats
+            for key_obs in list(val_obs):
+                if key_obs not in ['sys', 'sat_id']:
+                    if len(key_obs) > 2:
+                        val_obs.pop(key_obs, None)
 
 
 def reorganize(obs):
@@ -30,16 +43,52 @@ def reorganize(obs):
     """
     for _, val_epoch in enumerate(obs): # loop every epoch
         for _, val_obs in enumerate(val_epoch['obs']): # loop every observed sats
-            for idx_fre in range(OPTIONS['frequency_num']):
-                band = OPTIONS['frequency_num_'+val_obs['sys']][idx_fre]
-                val_obs['C'+band] = find_code(val_obs, val_obs['sys'], 'C', band)
-                val_obs['L'+band] = find_code(val_obs, val_obs['sys'], 'L', band)
-                val_obs['D'+band] = find_code(val_obs, val_obs['sys'], 'D', band)
-                val_obs['S'+band] = find_code(val_obs, val_obs['sys'], 'S', band)
-                # remove the original obs data
-                for key_obs in list(val_obs):
-                    if key_obs not in ['C'+band, 'L'+band, 'D'+band, 'S'+band, 'sys', 'sat_id']:
-                        val_obs.pop(key_obs, None)
+            for band in OPTIONS['frequency_num_'+val_obs['sys']]:
+                temp = find_code(val_obs, val_obs['sys'], 'C', band)
+                if temp[0] < 1:
+                    continue
+                else:
+                    val_obs['C'] = find_code(val_obs, val_obs['sys'], 'C', band)
+                    val_obs['L'] = find_code(val_obs, val_obs['sys'], 'L', band)
+                    val_obs['D'] = find_code(val_obs, val_obs['sys'], 'D', band)
+                    val_obs['S'] = find_code(val_obs, val_obs['sys'], 'S', band)
+                    break
+
+
+# def reorganize(obs):
+#     """
+#     reorganize the structure of obs data
+#     """
+#     for _, val_epoch in enumerate(obs): # loop every epoch
+#         for _, val_obs in enumerate(val_epoch['obs']): # loop every observed sats
+#             for band in OPTIONS['frequency_num_'+val_obs['sys']]:
+#                 temp = find_code(val_obs, val_obs['sys'], 'C', band)
+#                 if temp[0] < 1:
+#                     continue
+#                 else:
+#                     val_obs['C'+band] = find_code(val_obs, val_obs['sys'], 'C', band)
+#                     val_obs['L'+band] = find_code(val_obs, val_obs['sys'], 'L', band)
+#                     val_obs['D'+band] = find_code(val_obs, val_obs['sys'], 'D', band)
+#                     val_obs['S'+band] = find_code(val_obs, val_obs['sys'], 'S', band)
+#                     break
+
+
+# def reorganize(obs):
+#     """
+#     reorganize the structure of obs data
+#     """
+#     for _, val_epoch in enumerate(obs): # loop every epoch
+#         for _, val_obs in enumerate(val_epoch['obs']): # loop every observed sats
+#             for idx_fre in range(OPTIONS['frequency_num']):
+#                 band = OPTIONS['frequency_num_'+val_obs['sys']][idx_fre]
+#                 val_obs['C'+band] = find_code(val_obs, val_obs['sys'], 'C', band)
+#                 val_obs['L'+band] = find_code(val_obs, val_obs['sys'], 'L', band)
+#                 val_obs['D'+band] = find_code(val_obs, val_obs['sys'], 'D', band)
+#                 val_obs['S'+band] = find_code(val_obs, val_obs['sys'], 'S', band)
+#                 # remove the original obs data
+#                 for key_obs in list(val_obs):
+#                     if key_obs not in ['C'+band, 'L'+band, 'D'+band, 'S'+band, 'sys', 'sat_id']:
+#                         val_obs.pop(key_obs, None)
 
 
 #------------------------------------------------------------------------------#
@@ -886,26 +935,29 @@ def read_rnx(filename):
         if data_type == 'O':
             rnx = read_rnx_v303_obs(filename)
             exclude_obs(rnx['body'])
+            reorganize(rnx['body'])
+            remove_duplicate(rnx['body'])
         else:
             rnx = read_rnx_v303_nav(filename)
     return rnx
 
 
-dirname = os.path.dirname(__file__)
-# # # test read sp3 file
-# # nav1 = read_sp3(os.path.join(dirname, "data/G.sp3"))
-# # nav2 = read_sp3(os.path.join(dirname, "data/CERG.sp3"))
+# dirname = os.path.dirname(__file__)
+# # # # test read sp3 file
+# # # nav1 = read_sp3(os.path.join(dirname, "data/G.sp3"))
+# # # nav2 = read_sp3(os.path.join(dirname, "data/CERG.sp3"))
 
-# # # test read rinex obs file
-# obs1 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_gps.05o"))
-# # obs2 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_mix.11o"))
-# nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_gps.05n"))
-# obs3 = read_rnx_v303_obs(os.path.join(dirname, "data/303_obs_mix.00o"))
-# exclude_obs(obs3['body'])
-# nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_glo.20g"))
-# nav3 = read_rnx_v303_nav(os.path.join(dirname, "data/304_nav_mix.rnx"))
+# # # # test read rinex obs file
+# # obs1 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_gps.05o"))
+# # # obs2 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_mix.11o"))
+# # nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_gps.05n"))
+# # obs3 = read_rnx_v303_obs(os.path.join(dirname, "data/303_obs_mix.00o"))
+# # exclude_obs(obs3['body'])
+# # nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_glo.20g"))
+# # nav3 = read_rnx_v303_nav(os.path.join(dirname, "data/304_nav_mix.rnx"))
 
-obs = read_rnx_v303_obs(os.path.join(dirname, "data/CKSV00TWN_S_20211880000_01D_30S_MO.rnx"))
-exclude_obs(obs['body'])
-reorganize(obs['body'])
-c = 1
+# obs = read_rnx_v303_obs(os.path.join(dirname, "data/CKSV00TWN_S_20211880000_01D_30S_MO.rnx"))
+# exclude_obs(obs['body'])
+# reorganize(obs['body'])
+# remove_duplicate(obs['body'])
+# c = 1
