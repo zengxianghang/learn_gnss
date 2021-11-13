@@ -4,9 +4,50 @@ from constants import OPTIONS
 from datetime import datetime
 
 
+def find_code(obs, sys, type, band):
+    """
+    example: sys = 'G', type = 'C', band = '1'
+    """
+    if sys not in OPTIONS['enable_sys']:
+        return False
+    res = []
+    channels = list(obs.keys())
+    priority = 'code_priority_' + sys + band
+
+    for code in (OPTIONS[priority]):
+        channel = type + band + code
+        if channel in channels and obs[channel][0] > 1:
+            res.append(obs[channel])
+            break
+    if not res:
+        res.append([0, 999999, 999999])
+    return res
+
+
+def reorganize(obs):
+    """
+    reorganize the structure of obs data
+    """
+    for _, val_epoch in enumerate(obs): # loop every epoch
+        for _, val_obs in enumerate(val_epoch['obs']): # loop every observed sats
+            for idx_fre in range(OPTIONS['frequency_num']):
+                band = OPTIONS['frequency_num_'+val_obs['sys']][idx_fre]
+                val_obs['C'+band] = find_code(val_obs, val_obs['sys'], 'C', band)
+                val_obs['L'+band] = find_code(val_obs, val_obs['sys'], 'L', band)
+                val_obs['D'+band] = find_code(val_obs, val_obs['sys'], 'D', band)
+                val_obs['S'+band] = find_code(val_obs, val_obs['sys'], 'S', band)
+                # remove the original obs data
+                for key_obs in list(val_obs):
+                    if key_obs not in ['C'+band, 'L'+band, 'D'+band, 'S'+band, 'sys', 'sat_id']:
+                        val_obs.pop(key_obs, None)
+
+
 #------------------------------------------------------------------------------#
 # exclude: an easy way to do, but slow
 def exclude_obs(obs):
+    """
+    exclude systems
+    """
     for i in range(len(obs)):
         exclude_index = []
         for j in range(obs[i]['sats_num']):
@@ -428,6 +469,10 @@ def read_rnx_body_v210_nav(filename):
         if end_header:
             while (line := file.readline()):
                 nav = {}
+                if len(line[0:2].strip())<2:
+                    nav['sat_id'] = 'G0'+line[1] # be careful, error in this line
+                else:
+                    nav['sat_id'] = 'G'+line[0:2] # be careful, error in this line
                 nav['prn'] = int(line[0:2])
                 nav['time'] = str2time(line[3:22])
                 nav['clk_bias'] = str2float(line[22:22+19])
@@ -834,28 +879,33 @@ def read_rnx(filename):
     if rnx_vers < 3:
         if data_type == 'O':
             rnx = read_rnx_v210_obs(filename)
+            exclude_obs(rnx['body'])
         else:
             rnx = read_rnx_v210_nav(filename)
     else:
         if data_type == 'O':
             rnx = read_rnx_v303_obs(filename)
+            exclude_obs(rnx['body'])
         else:
             rnx = read_rnx_v303_nav(filename)
-            
     return rnx
 
 
-# dirname = os.path.dirname(__file__)
-# # # # test read sp3 file
-# # # nav1 = read_sp3(os.path.join(dirname, "data/G.sp3"))
-# # # nav2 = read_sp3(os.path.join(dirname, "data/CERG.sp3"))
+dirname = os.path.dirname(__file__)
+# # # test read sp3 file
+# # nav1 = read_sp3(os.path.join(dirname, "data/G.sp3"))
+# # nav2 = read_sp3(os.path.join(dirname, "data/CERG.sp3"))
 
-# # # # test read rinex obs file
-# # obs1 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_gps.05o"))
-# # # obs2 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_mix.11o"))
-# # nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_gps.05n"))
-# # obs3 = read_rnx_v303_obs(os.path.join(dirname, "data/303_obs_mix.00o"))
-# # exclude_obs(obs3['body'])
-# # nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_glo.20g"))
+# # # test read rinex obs file
+# obs1 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_gps.05o"))
+# # obs2 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_mix.11o"))
+# nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_gps.05n"))
+# obs3 = read_rnx_v303_obs(os.path.join(dirname, "data/303_obs_mix.00o"))
+# exclude_obs(obs3['body'])
+# nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_glo.20g"))
 # nav3 = read_rnx_v303_nav(os.path.join(dirname, "data/304_nav_mix.rnx"))
-# c = 1
+
+obs = read_rnx_v303_obs(os.path.join(dirname, "data/CKSV00TWN_S_20211880000_01D_30S_MO.rnx"))
+exclude_obs(obs['body'])
+reorganize(obs['body'])
+c = 1
