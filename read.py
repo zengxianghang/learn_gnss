@@ -6,6 +6,18 @@ import os
 
 from constants import OPTIONS
 from datetime import datetime
+  
+
+def merge_nav(nav_ls):
+    res = {}
+    res['body'] = []
+    for nav in nav_ls:
+        for key_nav in nav:
+            if key_nav == 'body':   
+                res['body'].extend(nav['body'])
+            else:
+                res[key_nav] = nav[key_nav]
+    return res
 
 
 def find_code(obs, sys, type, band):
@@ -28,21 +40,39 @@ def find_code(obs, sys, type, band):
     return res
 
 
+def find_frequency(sys, band):
+    idx = OPTIONS['frequency_num_' + sys].index(band)
+    return OPTIONS['frequency_' + sys][idx]
+
+
 def remove_duplicate(obs):
     for _, val_epoch in enumerate(obs): # loop every epoch
         for _, val_obs in enumerate(val_epoch['obs']): # loop every observed sats
             for key_obs in list(val_obs):
-                if key_obs not in ['sys', 'sat_id']:
+                if key_obs not in ['sys', 'sat_id', 'frequency']:
                     if len(key_obs) > 2:
                         val_obs.pop(key_obs, None)
 
 
-def reorganize(obs):
+def reorganize_v2(obs):
     """
-    reorganize the structure of obs data
+    reorganize the structure of obs data, error in this function
+    todo
     """
     for _, val_epoch in enumerate(obs): # loop every epoch
         for _, val_obs in enumerate(val_epoch['obs']): # loop every observed sats
+            val_obs['C'] = val_obs['C1']
+            val_obs['L'] = val_obs['L1']
+            val_obs['D'] = val_obs['D1']
+            val_obs['S'] = val_obs['S1'] 
+
+
+def reorganize_v3(obs):
+    """
+    reorganize the structure of obs data
+    """
+    for i, val_epoch in enumerate(obs): # loop every epoch
+        for j, val_obs in enumerate(val_epoch['obs']): # loop every observed sats
             for band in OPTIONS['frequency_num_'+val_obs['sys']]:
                 temp = find_code(val_obs, val_obs['sys'], 'C', band)
                 if temp[0] < 1:
@@ -52,7 +82,18 @@ def reorganize(obs):
                     val_obs['L'] = find_code(val_obs, val_obs['sys'], 'L', band)
                     val_obs['D'] = find_code(val_obs, val_obs['sys'], 'D', band)
                     val_obs['S'] = find_code(val_obs, val_obs['sys'], 'S', band)
+                    val_obs['frequency'] = find_frequency(val_obs['sys'], band)
                     break
+            if 'C' not in val_obs:
+                val_obs['C'] = [0, 999999, 999999]
+            if 'L' not in val_obs:
+                val_obs['L'] = [0, 999999, 999999]
+            if 'D' not in val_obs:
+                val_obs['D'] = [0, 999999, 999999]
+            if 'S' not in val_obs:
+                val_obs['S'] = [0, 999999, 999999]
+            if 'frequency' not in val_obs:
+                val_obs['frequency'] = 0
 
 
 # def reorganize(obs):
@@ -319,12 +360,21 @@ def read_rnx_version(filename):
     """
     with open(filename, 'r') as file:
         line = file.readline()
-        if line[40:41] == ' ':
+        version = float(line[0:9])
+        if version > 2.9 or line[20] == 'O':
+            if line[40] == ' ':
+                sys = 'G'
+            else:
+                sys = line[40]
+            file_type = line[20]
+        if line[20] == 'G' and version < 3:
+            file_type = 'N'
+            sys = 'R'
+        if line[20] == 'N' and version < 3:
+            file_type = 'N'
             sys = 'G'
-        else:
-            sys = line[40:41]
     file.close()
-    return float(line[0:9]), line[20:21], sys
+    return version, file_type, sys
 
 
 def read_rnx_header_v210_obs(filename):
@@ -428,7 +478,10 @@ def read_rnx_body_v210_obs(filename, obs_type_num, obs_type):
                         line = '{:<80}'.format(line)
                         for j in range(32, 68, 3):
                             if line[j:j+3].strip() != '':
-                                sat_id.append(line[j:j+3])
+                                if line[j+1] == ' ':
+                                    sat_id.append(line[j] + '0' + line[j+2])
+                                else:
+                                    sat_id.append(line[j:j+3])
                         
                     epoch['sat_id'] = sat_id
                     if line[68:80].strip() != '': # optional
@@ -439,6 +492,7 @@ def read_rnx_body_v210_obs(filename, obs_type_num, obs_type):
                         index_obs_type = 0
                         obs_d = {}
                         obs_d['sat_id'] = epoch['sat_id'][i]
+                        obs_d['sys'] = obs_d['sat_id'][0]
                         for j in range(int(obs_type_num/5-1e-5)+1):
                             line = file.readline().rstrip()
                             line = '{:<80}'.format(line)
@@ -466,7 +520,7 @@ def read_rnx_v210_obs(filename):
     return {**header, **body}
 
 
-def read_rnx_header_v210_nav(filename):
+def read_rnx_header_v210_nav(filename, sys):
     """
     work with mixed GNSS navigation message data
     """
@@ -484,11 +538,11 @@ def read_rnx_header_v210_nav(filename):
             elif 'COMMENT' in line: # optional
                 continue
             elif 'ION ALPHA' in line: # optional
-                header['ion_alpha'] = [str2float(line[2:14]), \
+                header['ion_alpha_'+sys] = [str2float(line[2:14]), \
                     str2float(line[14:26]), str2float(line[26:38]), \
                     str2float(line[38:50])]
             elif 'ION BETA' in line: # optional
-                header['ion_beta'] = [str2float(line[2:14]), \
+                header['ion_beta_'+sys] = [str2float(line[2:14]), \
                     str2float(line[14:26]), str2float(line[26:38]), \
                     str2float(line[38:50])]
             elif 'CORR TO SYSTEM TIME' in line: # optional, glonass
@@ -507,7 +561,7 @@ def read_rnx_header_v210_nav(filename):
     return header
 
 
-def read_rnx_body_v210_nav(filename):
+def read_rnx_body_v210_nav_gps(filename):
     body = []
     end_header = False
     with open(filename, 'r') as file:
@@ -616,13 +670,15 @@ def read_rnx_body_v210_nav_glo(filename):
     return body
 
 
-def read_rnx_v210_nav(filename):
-    header = read_rnx_header_v210_nav(filename)
+def read_rnx_v210_nav(filename, sys):
+    header = read_rnx_header_v210_nav(filename, sys)
     if header['file_type'][0] == 'G':
         body = {'body': read_rnx_body_v210_nav_glo(filename)}
     else:
-        body = {'body': read_rnx_body_v210_nav(filename)}
-
+        if 'G' in OPTIONS['enable_sys']:
+            body = {'body': read_rnx_body_v210_nav_gps(filename)}
+        else:
+            body = {}
     return {**header, **body}
 
 
@@ -711,10 +767,11 @@ def read_rnx_header_v303_obs(filename):
             elif 'SYS / SCALE FACTOR' in line: # optional
                 pass # todo
             elif 'SYS / PHASE SHIFT' in line:
-                sys = line[0:1]
-                phase_type = line[2:5]
-                correction = float(line[6:14])
-                involved_sats_num = str2int(line[16:18])
+                pass
+                # sys = line[0:1]
+                # phase_type = line[2:5]
+                # correction = float(line[6:14])
+                # involved_sats_num = str2int(line[16:18])
                 # todo 
             elif 'GLONASS SLOT / FRQ #' in line:
                 pass # todo
@@ -801,44 +858,42 @@ def read_rnx_header_v303_nav(filename):
                 continue
             elif 'IONOSPHERIC CORR' in line: # optional
                 if 'GPSA' in line:
-                    header['gps_ion_alpha'] = [str2float(line[2:14]), \
-                        str2float(line[14:26]), str2float(line[26:38]), \
-                        str2float(line[38:50])]
+                    header['ion_alpha_G'] = [str2float(line[5:5+12]), \
+                        str2float(line[5+12:5+12*2]), str2float(line[5+12*2:5+12*3]), \
+                        str2float(line[5+12*3:5+12*4])]
                 elif 'GPSB' in line:
-                    header['gps_ion_beta'] = [str2float(line[2:14]), \
-                        str2float(line[14:26]), str2float(line[26:38]), \
-                        str2float(line[38:50])]
+                    header['ion_beta_G'] = [str2float(line[5:5+12]), \
+                        str2float(line[5+12:5+12*2]), str2float(line[5+12*2:5+12*3]), \
+                        str2float(line[5+12*3:5+12*4])]
                 elif 'BDSA' in line:
-                    header['bds_ion_alpha'] = [str2float(line[2:14]), \
-                        str2float(line[14:26]), str2float(line[26:38]), \
-                        str2float(line[38:50])]
+                    header['ion_alpha_C'] = [str2float(line[5:5+12]), \
+                        str2float(line[5+12:5+12*2]), str2float(line[5+12*2:5+12*3]), \
+                        str2float(line[5+12*3:5+12*4])]
                 elif 'BDSB' in line:
-                    header['bds_ion_beta'] = [str2float(line[2:14]), \
-                        str2float(line[14:26]), str2float(line[26:38]), \
-                        str2float(line[38:50])]
+                    header['ion_beta_C'] = [str2float(line[5:5+12]), \
+                        str2float(line[5+12:5+12*2]), str2float(line[5+12*2:5+12*3]), \
+                        str2float(line[5+12*3:5+12*4])]
                 elif 'QZSA' in line:
-                    header['qzs_ion_alpha'] = [str2float(line[2:14]), \
-                        str2float(line[14:26]), str2float(line[26:38]), \
-                        str2float(line[38:50])]
+                    header['ion_alpha_J'] = [str2float(line[5:5+12]), \
+                        str2float(line[5+12:5+12*2]), str2float(line[5+12*2:5+12*3]), \
+                        str2float(line[5+12*3:5+12*4])]
                 elif 'QZSB' in line:
-                    header['qzs_ion_beta'] = [str2float(line[2:14]), \
-                        str2float(line[14:26]), str2float(line[26:38]), \
-                        str2float(line[38:50])]
+                    header['ion_beta_J'] = [str2float(line[5:5+12]), \
+                        str2float(line[5+12:5+12*2]), str2float(line[5+12*2:5+12*3]), \
+                        str2float(line[5+12*3:5+12*4])]
                 elif 'IRNA' in line:
-                    header['irn_ion_alpha'] = [str2float(line[2:14]), \
-                        str2float(line[14:26]), str2float(line[26:38]), \
-                        str2float(line[38:50])]
+                    header['ion_alpha_I'] = [str2float(line[5:5+12]), \
+                        str2float(line[5+12:5+12*2]), str2float(line[5+12*2:5+12*3]), \
+                        str2float(line[5+12*3:5+12*4])]
                 elif 'IRNB' in line:
-                    header['irn_ion_beta'] = [str2float(line[2:14]), \
-                        str2float(line[14:26]), str2float(line[26:38]), \
-                        str2float(line[38:50])]
+                    header['ion_beta_I'] = [str2float(line[5:5+12]), \
+                        str2float(line[5+12:5+12*2]), str2float(line[5+12*2:5+12*3]), \
+                        str2float(line[5+12*3:5+12*4])]
                 elif 'GAL' in line:
-                    header['gal_ion_beta'] = [str2float(line[2:14]), \
-                        str2float(line[14:26]), str2float(line[26:38])]
+                    header['ion_beta_E'] = [str2float(line[5:5+12]), \
+                        str2float(line[5+12:5+12*2]), str2float(line[5+12*2:5+12*3])]
             elif 'TIME SYSTEM CORR' in line: # optional
-                header['delta_utc'] = [str2float(line[3:22]), \
-                    str2float(line[22:22+19]), int(line[22+19:22+28]), \
-                    int(line[22+28:22+37])]
+                pass # todo
             elif 'LEAP SECONDS' in line: # optional
                 header['leap'] = int(line[0:6])
             elif 'END OF HEADER' in line:
@@ -930,34 +985,44 @@ def read_rnx(filename):
             rnx = read_rnx_v210_obs(filename)
             exclude_obs(rnx['body'])
         else:
-            rnx = read_rnx_v210_nav(filename)
+            rnx = read_rnx_v210_nav(filename, sys)
     else:
         if data_type == 'O':
             rnx = read_rnx_v303_obs(filename)
             exclude_obs(rnx['body'])
-            reorganize(rnx['body'])
+            reorganize_v3(rnx['body'])
             remove_duplicate(rnx['body'])
         else:
             rnx = read_rnx_v303_nav(filename)
+    rnx['file_type2'] = data_type + sys
     return rnx
 
 
 # dirname = os.path.dirname(__file__)
-# # # # test read sp3 file
-# # # nav1 = read_sp3(os.path.join(dirname, "data/G.sp3"))
-# # # nav2 = read_sp3(os.path.join(dirname, "data/CERG.sp3"))
+# # # test read sp3 file
+# # nav1 = read_sp3(os.path.join(dirname, "data/G.sp3"))
+# # nav2 = read_sp3(os.path.join(dirname, "data/CERG.sp3"))
 
-# # # # test read rinex obs file
-# # obs1 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_gps.05o"))
-# # # obs2 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_mix.11o"))
-# # nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_gps.05n"))
-# # obs3 = read_rnx_v303_obs(os.path.join(dirname, "data/303_obs_mix.00o"))
-# # exclude_obs(obs3['body'])
-# # nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_glo.20g"))
-# # nav3 = read_rnx_v303_nav(os.path.join(dirname, "data/304_nav_mix.rnx"))
+# # test read rinex obs file
+# obs1 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_gps.05o"))
+# obs2 = read_rnx_v210_obs(os.path.join(dirname, "data/210_obs_mix.11o"))
+# nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_gps.05n"))
+# obs3 = read_rnx_v303_obs(os.path.join(dirname, "data/303_obs_mix.00o"))
+# nav3 = read_rnx_v210_nav(os.path.join(dirname, "data/210_nav_glo.20g"))
+# nav3 = read_rnx_v303_nav(os.path.join(dirname, "data/304_nav_mix.rnx"))
+# nav2 = read_rnx(os.path.join(dirname, "data/brdc1880.21n"))
 
 # obs = read_rnx_v303_obs(os.path.join(dirname, "data/CKSV00TWN_S_20211880000_01D_30S_MO.rnx"))
 # exclude_obs(obs['body'])
 # reorganize(obs['body'])
 # remove_duplicate(obs['body'])
+
+# obs1 = read_rnx(os.path.join(dirname, "data/210_obs_gps.05o"))
+# # obs2 = read_rnx(os.path.join(dirname, "data/210_obs_mix.11o"))
+# # nav3 = read_rnx(os.path.join(dirname, "data/210_nav_gps.05n"))
+# # obs3 = read_rnx(os.path.join(dirname, "data/303_obs_mix.00o"))
+# # nav3 = read_rnx(os.path.join(dirname, "data/304_nav_mix.rnx"))
+# # nav2 = read_rnx(os.path.join(dirname, "data/brdc1880.21n"))
+# # obs = read_rnx(os.path.join(dirname, "data/CKSV00TWN_S_20211880000_01D_30S_MO.rnx"))
+# # nav3 = read_rnx(os.path.join(dirname, "data/210_nav_glo.20g"))
 # c = 1
